@@ -1,0 +1,31 @@
+# modeac.net: what to change in the docker-compose.yml that already runs your ultrafeeder.
+# Step-by-step instructions: https://github.com/modeac-net/mlat-client-modeac#join-with-ultrafeeder-about-5-minutes
+#
+# Three edits, then: docker compose up -d
+# Your existing feeds (ADSBx, adsb.lol, FlightAware...) keep running exactly as before.
+
+services:
+
+  # --- your existing ultrafeeder service: two small additions ------------------------------
+  ultrafeeder:
+    image: ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder
+    # ...all of your existing settings stay as they are...
+    environment:
+      # ...your existing variables...
+      - READSB_MODEAC=true                    # 1. ADD THIS: decode Mode A/C replies
+      # 2. ADD to the END of your existing ULTRAFEEDER_CONFIG line (after the last entry):
+      #      ;adsb,feed.modeac.net,30004,beast_reduce_plus_out
+      #    e.g. - ULTRAFEEDER_CONFIG=adsb,feed.adsb.lol,30004,beast_reduce_plus_out;adsb,feed.modeac.net,30004,beast_reduce_plus_out
+
+  # --- 3. paste this block as-is --------------------------------------------------------------
+  mlat-modeac:
+    image: ghcr.io/modeac-net/mlat-client-modeac
+    container_name: mlat-modeac
+    restart: unless-stopped
+    environment:
+      - MLAT_SERVER=feed.modeac.net:31090
+      - MLAT_USER=${FEEDER_NAME}
+      - LAT=${FEEDER_LAT}
+      - LON=${FEEDER_LONG}
+      - ALT=${FEEDER_ALT_M}m
+      - UUID=${ULTRAFEEDER_UUID:-}
