@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Thanks for feeding modeac.net! Please check the
-        [troubleshooting table](https://github.com/modeac-net/mlat-client-modeac#if-something-s-wrong) first.
+        [troubleshooting table](https://github.com/modeac-net/mlat-client-modeac#if-somethings-wrong) first.
 
         **Issues are public.** Before pasting logs, **remove your latitude and longitude**
         (they appear in some messages, e.g. `Receiver location 40.1234,-83.1234 ...`). Replace them
