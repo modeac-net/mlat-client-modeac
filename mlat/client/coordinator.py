@@ -27,6 +27,7 @@ import _modes
 import mlat.profile
 from mlat.client.util import monotonic_time, log
 from mlat.client.stats import global_stats
+from mlat.client.acmatch import ModeACMatcher, squawk_from_frame
 
 import random
 random.seed()
@@ -56,7 +57,8 @@ class Coordinator:
     position_expiry_age = 30.0
     expiry_age = 120.0
 
-    def __init__(self, receiver, server, outputs, freq, allow_anon, allow_modeac, stats_interval):
+    def __init__(self, receiver, server, outputs, freq, allow_anon, allow_modeac, stats_interval,
+                 forward_all_modeac=False, modeac_exclude=()):
         self.receiver = receiver
         self.server = server
         self.outputs = outputs
@@ -64,6 +66,16 @@ class Coordinator:
         self.allow_anon = allow_anon
         self.allow_modeac = allow_modeac
         self.stats_interval = stats_interval
+        # Mode A/C fork: forward every A/C reply except excluded squawks.
+        # Codes are held in readsb's "hex-octal" form, e.g. squawk 1200 -> 0x1200.
+        self.forward_all_modeac = forward_all_modeac
+        self.modeac_exclude = frozenset(modeac_exclude)
+        # server-controlled pre-filter: drop A/C replies explained by Mode S aircraft we hear
+        self.acmatch = ModeACMatcher()
+        self.local_known = None          # LocalAircraftList: squawks from the local readsb's aircraft.json
+        # Fallback only: decode squawks from identity replies (DF5/21) ourselves. Off while the local
+        # aircraft list works, so those messages aren't even passed up from the C reader.
+        self.identity_fallback = False
 
         self.aircraft = {}
         self.requested_traffic = set()
@@ -86,6 +98,7 @@ class Coordinator:
         }
         self.next_report = None
         self.next_stats = monotonic_time() + 60
+        self.next_pair_hints = monotonic_time() + 5
         self.next_profile = monotonic_time()
         self.next_aircraft_update = self.last_aircraft_update = monotonic_time()
         self.recent_jumps = 0
@@ -157,6 +170,28 @@ class Coordinator:
         if now >= self.next_stats and self.stats_interval > 0:
             self.next_stats = now + self.stats_interval
             self.periodic_stats(now)
+
+        self.take_local_known(now)
+        self.send_pair_hints(now)
+
+    def send_pair_hints(self, now):
+        """Mode A/C pair hints (an unknown's squawk <-> altitude) for the server."""
+        if self.acmatch.pair_on and self.acmatch.pair_hints and now >= self.next_pair_hints:
+            self.next_pair_hints = now + self.acmatch.hint_interval
+            hints = self.acmatch.hints(now)
+            if hints and self.server.state == 'ready':
+                self.server.send_modeac_pairs(hints)
+
+    def take_local_known(self, now):
+        """Squawks the local readsb knows (from every source it decodes) count as heard by this receiver."""
+        if self.local_known is None or not self.acmatch.mode_a_on:
+            return
+        self._update_identity_fallback()
+        codes = self.local_known.take()
+        if codes is not None:
+            for code in codes:
+                self.acmatch.note_squawk(code, now)
+            global_stats.modeac_readsb_squawks = len(codes)
 
     def update_aircraft(self, now):
         # process aircraft the receiver has seen
@@ -373,6 +408,19 @@ class Coordinator:
         if not ac:
             return False  # not a known ICAO
 
+        # Mode A/C pre-filter input. DF0/4/5/16/20/21 carry no CRC check of their own: the
+        # address is recovered from the parity, so only accepting addresses already confirmed
+        # by DF11/DF17 (self.aircraft) acts as the error check.
+        df = message.df
+        if df == 5 or df == 21:
+            if self.identity_fallback:
+                code = squawk_from_frame(bytes(message))
+                if code is not None:
+                    self.acmatch.note_squawk(code, now)
+                    global_stats.modeac_identity_squawks += 1
+        elif self.acmatch.mode_c_on and message.altitude is not None:
+            self.acmatch.note_altitude(message.altitude, now)
+
         ac.messages += 1
         ac.last_message_time = now
 
@@ -423,6 +471,8 @@ class Coordinator:
 
         ac.messages += 1
         ac.last_message_time = now
+        if self.acmatch.mode_c_on and message.valid and message.altitude is not None:
+            self.acmatch.note_altitude(message.altitude, now)
         if ac.messages < 10:
             return
 
@@ -472,7 +522,60 @@ class Coordinator:
             # this is a useful reference message pair
             self.server.send_sync(ac.even_message, ac.odd_message)
 
+    def server_modeac_filter(self, cfg):
+        """Pre-filter settings from the server (handshake response or a later update)."""
+        if not self.forward_all_modeac:
+            return
+        try:
+            self.acmatch.configure(cfg)
+        except (ValueError, TypeError, AttributeError) as e:
+            log('Ignoring bad Mode A/C filter settings from server: {0}', e)
+            return
+        # Mode S messages the matcher needs, for ALL aircraft (normally the reader only passes
+        # DF0/4/5/16/20/21 for aircraft the server asked about)
+        self._update_identity_fallback(force=True)
+        log('Mode A/C filter (set by server): {0}', self.acmatch.describe())
+
+    def _update_identity_fallback(self, force=False):
+        """Decode identity replies ourselves only when the Mode A match is on and the local readsb's
+        aircraft list isn't available (not configured, or failing)."""
+        list_ok = self.local_known is not None and self.local_known.ok is not False
+        want = bool(self.acmatch.mode_a_on and not list_ok)
+        if want != self.identity_fallback or force:
+            if want != self.identity_fallback and self.local_known is not None:
+                log('Mode A/C: {0}', 'aircraft list unavailable, decoding identity replies as a fallback'
+                    if want else 'using the local aircraft list; identity-reply fallback off')
+            self.identity_fallback = want
+            self.receiver.set_modeac_match_inputs(identity=want, altitude=self.acmatch.mode_c_on)
+
     def received_modeac(self, message, now):
+        if self.forward_all_modeac:
+            global_stats.modeac_received += 1
+            acm = self.acmatch
+            # Pairing only needs the replies that will be sent (an unknown's squawk and altitude), so known
+            # traffic and excluded codes are skipped before it - most replies, and the costly step. Only
+            # drop_paired needs to see known traffic's pairs too.
+            if acm.pair_on and (acm.pair_drop or acm._drops(message.address & 0x7777, now) is None):
+                acm.observe(message.timestamp, message.address, message.signal, now)
+            # low 16 bits are readsb's hex-octal Mode A word: 0x7777 = code, 0x0080 = SPI
+            if (message.address & 0x7777) in self.modeac_exclude:
+                global_stats.modeac_excluded += 1
+                return
+            reason = self.acmatch.check(message.address, now)
+            if reason is not None:
+                if reason == "exclude":
+                    global_stats.modeac_excluded += 1
+                elif reason == "mode_a":
+                    global_stats.modeac_matched_a += 1
+                elif reason == "pair":
+                    global_stats.modeac_paired += 1
+                else:
+                    global_stats.modeac_matched_c += 1
+                return
+            global_stats.modeac_sent += 1
+            self.server.send_mlat(message)
+            return
+
         if message.address not in self.requested_modeac:
             return
 

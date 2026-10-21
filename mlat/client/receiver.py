@@ -33,11 +33,15 @@ from mlat.client.util import log, monotonic_time
 class ReceiverConnection(ReconnectingConnection):
     inactivity_timeout = 150.0
 
-    def __init__(self, host, port, mode):
+    def __init__(self, host, port, mode, forward_all_modeac=False):
         ReconnectingConnection.__init__(self, host, port)
         self.coordinator = None
         self.last_data_received = monotonic_time()
         self.mode = mode
+        # Mode A/C fork: when set, every Mode A/C frame is passed up to the
+        # coordinator (which applies the exclude list) instead of only the
+        # codes the server asked for.
+        self.forward_all_modeac = forward_all_modeac
 
         # set up filters
 
@@ -102,7 +106,8 @@ class ReceiverConnection(ReconnectingConnection):
         self.reader.seen = set()
         self.reader.default_filter = self.default_filter
         self.reader.specific_filter = self.specific_filter
-        self.reader.modeac_filter = self.modeac_filter
+        # None = accept all Mode A/C in the C reader
+        self.reader.modeac_filter = None if self.forward_all_modeac else self.modeac_filter
 
     def start_connection(self):
         log('Input connected to {0}:{1}', self.host, self.port)
@@ -124,7 +129,7 @@ class ReceiverConnection(ReconnectingConnection):
         if self.reader.mode not in (None, _modes.BEAST, _modes.RADARCAPE, _modes.RADARCAPE_EMULATED):
             return
 
-        if not self.modeac_filter:
+        if not self.modeac_filter and not self.forward_all_modeac:
             # Binary format, no filters, CRC checks enabled, mode A/C disabled
             settings_message = b'\x1a1C\x1a1d\x1a1f\x1a1j'
         else:
@@ -161,9 +166,22 @@ class ReceiverConnection(ReconnectingConnection):
         self.interested_mlat.clear()
         self.interested_mlat.update(wanted_mlat)
 
+    def set_modeac_match_inputs(self, identity, altitude):
+        """Pass Mode S identity (DF5/21) and/or altitude (DF0/4/16/20) replies for every aircraft,
+        not just the ones the server asked for, so the Mode A/C pre-filter can match against them.
+        Edited in place: the reader holds a reference to this list."""
+        for df in (5, 21):
+            self.default_filter[df] = bool(identity)
+        for df in (0, 4, 16, 20):
+            self.default_filter[df] = bool(altitude)
+
     def update_modeac_filter(self, wanted_modeac):
         """Update the receiver filters so that we receive mode A/C messages
         for the given Mode A codes"""
+
+        if self.forward_all_modeac:
+            # everything is already forwarded; server requests don't narrow it
+            return
 
         changed = (self.modeac_filter and not wanted_modeac) or (not self.modeac_filter and wanted_modeac)
         self.modeac_filter.clear()

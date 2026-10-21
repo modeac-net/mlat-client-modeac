@@ -48,6 +48,7 @@ TYPE_MLAT_LONG = 3
 TYPE_SSYNC = 4
 TYPE_REBASE = 5
 TYPE_ABS_SYNC = 6
+TYPE_MLAT_MODEAC = 7    # Mode A/C fork: 2-byte Mode A/C reply (readsb hex-octal word)
 
 STRUCT_HEADER = struct.Struct(">IHQ")
 STRUCT_SYNC = struct.Struct(">Bii14s14s")
@@ -56,6 +57,7 @@ STRUCT_MLAT_SHORT = struct.Struct(">Bi7s")
 STRUCT_MLAT_LONG = struct.Struct(">Bi14s")
 STRUCT_REBASE = struct.Struct(">BQ")
 STRUCT_ABS_SYNC = struct.Struct(">BQQ14s14s")
+STRUCT_MLAT_MODEAC = struct.Struct(">Bi2s")
 
 
 class UdpServerConnection:
@@ -95,7 +97,13 @@ class UdpServerConnection:
             self.rebase(message.timestamp)
             delta = 0
 
-        if len(message) == 7:
+        if len(message) == 2:
+            STRUCT_MLAT_MODEAC.pack_into(self.buf, self.used,
+                                         TYPE_MLAT_MODEAC,
+                                         delta, bytes(message))
+            self.used += STRUCT_MLAT_MODEAC.size
+
+        elif len(message) == 7:
             STRUCT_MLAT_SHORT.pack_into(self.buf, self.used,
                                         TYPE_MLAT_SHORT,
                                         delta, bytes(message))
@@ -178,6 +186,7 @@ class UdpServerConnection:
 
 class JsonServerConnection(mlat.client.net.ReconnectingConnection):
     reconnect_interval = 10.0
+    max_backoff = 600.0
     heartbeat_interval = 120.0
     inactivity_timeout = 60.0
 
@@ -323,6 +332,10 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
     def send_rate_report(self, report):
         r2 = dict([('{0:06X}'.format(k), round(v, 2)) for k, v in report.items()])
         self._send_json({'rate_report': r2})
+
+    def send_modeac_pairs(self, pairs):
+        """modeac.net: [[code, code, hits], ...] linked by reply timing at this receiver."""
+        self._send_json({'modeac_pairs': pairs})
 
     def send_input_connected(self):
         self._send_json({'input_connected': 'connected'})
@@ -517,6 +530,9 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
                 self.udp_transport and str(self.udp_transport) or 'disabled',
                 self.send_split_sync and 'enabled' or 'disabled')
 
+        # modeac.net: Mode A/C pre-filter settings (absent = filter nothing)
+        self.coordinator.server_modeac_filter(response.get('modeac_filter'))
+
         self.state = 'ready'
         self.handle_server_line = self.handle_connected_request
         self.coordinator.server_connected()
@@ -533,6 +549,17 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
             self.coordinator.server_stop_sending([int(x, 16) for x in request['stop_sending']])
         elif 'heartbeat' in request:
             pass
+        elif 'deny' in request:
+            # modeac.net: the server can end a session with a reason (e.g. this receiver was banned
+            # or its location turned out to be wrong) and ask for a long wait before reconnecting
+            if 'reconnect_in' in request:
+                self.reconnect_interval = request['reconnect_in']
+            log('Server ended our session, saying:')
+            for reason in request['deny']:
+                log('  {0}', reason)
+            raise IOError('Server ended our session')
+        elif 'modeac_filter' in request:
+            self.coordinator.server_modeac_filter(request['modeac_filter'])
         elif 'result' in request:
             result = request['result']
             ecef = result.get('ecef')

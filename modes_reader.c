@@ -48,6 +48,8 @@ typedef enum {
 #define MAGIC_MLAT_TIMESTAMP 0xFF004D4C4154ULL
 #define MAGIC_UAT_TIMESTAMP  0xFF004D4C4155ULL
 #define OUTLIER_LIMIT 1
+/* how far (in seconds) a Mode A/C frame may lag the newest Mode S timestamp */
+#define MODEAC_MAX_LAG_SECONDS 1ULL
 
 /* a modesreader object */
 typedef struct {
@@ -833,12 +835,10 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
             }
         }
 
-        // ignore ModeAC messages
-        if (type == '1') {
-            /* don't try to process this as a Mode S message */
-            p = m;
-            continue;
-        }
+        /* Mode A/C frames (type '1') are no longer discarded here: they are
+         * timestamp-adjusted below (F2 -> F1) and parsed as DF_MODEAC messages,
+         * then filtered in filter_message(). They are never used to update
+         * last_timestamp (see the type != '1' guards below). */
 
         if (has_timestamp_signal && !is_synthetic_timestamp(timestamp)) {
             if (self->decoder_mode == DECODER_BEAST) {
@@ -1508,17 +1508,29 @@ static int filter_message(modesreader *self, PyObject *o)
     if (self->outliers > 0)
         return 0;
 
-    // Ignore messages that jump backwards
-    if (self->last_timestamp > message->timestamp)
-        return 0;
-
     if (message->df == DF_MODEAC) {
+        /* readsb/dump1090 demodulate Mode A/C in a separate pass over each
+         * sample buffer, so A/C frames can arrive behind Mode S frames that
+         * were transmitted later (up to roughly one buffer, ~100 ms).
+         * Accept A/C up to MODEAC_MAX_LAG_SECONDS behind; anything older is
+         * treated as stale (dump1090-mutability issue #47). */
+        if (self->last_timestamp > message->timestamp) {
+            unsigned long long lag = self->last_timestamp - message->timestamp;
+            unsigned long long max_lag = (self->frequency ? self->frequency : 12000000ULL) * MODEAC_MAX_LAG_SECONDS;
+            if (lag > max_lag)
+                return 0;
+        }
+
         if (self->modeac_filter != NULL && self->modeac_filter != Py_None) {
             return PySequence_Contains(self->modeac_filter, message->address);
         }
 
         return 1;
     }
+
+    // Ignore messages that jump backwards
+    if (self->last_timestamp > message->timestamp)
+        return 0;
 
     if (!message->valid) {
         return self->want_invalid_messages; /* don't process further, contents are dubious */

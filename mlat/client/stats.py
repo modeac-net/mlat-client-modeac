@@ -39,6 +39,15 @@ class Stats:
         self.receiver_rx_filtered = 0
         self.receiver_rx_mlat = 0
         self.mlat_positions = 0
+        # Mode A/C fork counters
+        self.modeac_received = 0
+        self.modeac_excluded = 0
+        self.modeac_matched_a = 0      # dropped: squawk of a Mode S aircraft we hear
+        self.modeac_matched_c = 0      # dropped: altitude of a Mode S aircraft we hear
+        self.modeac_paired = 0         # dropped: paired (reply timing) only with dropped codes
+        self.modeac_identity_squawks = 0    # squawks learned from identity replies this interval
+        self.modeac_readsb_squawks = None   # squawks in the local readsb's aircraft list (last read)
+        self.modeac_sent = 0
 
     def log_and_reset(self, coordinator):
         now = monotonic_time()
@@ -62,6 +71,19 @@ class Stats:
             coordinator.server.state,
             self.server_rx_bytes / elapsed / 1000.0,
             (self.server_tx_bytes + self.server_udp_bytes) / elapsed / 1000.0)
+        if self.modeac_received:
+            log('Mode A/C: {0:6.1f} msg/s received  {1:6.1f} excluded  {2:6.1f} Mode S squawk  '
+                '{3:6.1f} Mode S alt  {6:6.1f} paired  {4:6.1f} msg/s sent to server ({5:.0f}%)',
+                self.modeac_received / elapsed,
+                self.modeac_excluded / elapsed,
+                self.modeac_matched_a / elapsed,
+                self.modeac_matched_c / elapsed,
+                self.modeac_sent / elapsed,
+                100.0 * self.modeac_sent / self.modeac_received,
+                self.modeac_paired / elapsed)
+            log('Mode A/C: known squawks: {0} identity replies decoded here; local readsb aircraft list: {1}',
+                self.modeac_identity_squawks,
+                'not read' if self.modeac_readsb_squawks is None else '%d squawks' % self.modeac_readsb_squawks)
         log('Results:  {0:3.1f} positions/minute',
             self.mlat_positions / elapsed * 60.0)
         self.reset(now)

@@ -88,6 +88,26 @@ location pin from the coverage maps.""",
                         help="Interval between statistic outputs in seconds",
                         default=900)
 
+    modeac = parser.add_argument_group('Mode A/C forwarding (Mode A/C MLAT fork)')
+    modeac.add_argument('--forward-modeac',
+                        dest='forward_modeac',
+                        help="Forward every Mode A/C reply (except --modeac-exclude codes) to the server. "
+                             "Requires a server running the Mode A/C patch and an explicit --server.",
+                        action='store_true',
+                        default=False)
+    modeac.add_argument('--modeac-exclude',
+                        dest='modeac_exclude',
+                        help="Comma-separated squawks to drop before sending (default: none; "
+                             "the server does the filtering). Only set this to save upload bandwidth.",
+                        type=options.squawk_list,
+                        default=options.squawk_list(''))
+    modeac.add_argument('--aircraft-json',
+                        dest='aircraft_json',
+                        help="URL of the local readsb's aircraft.json (e.g. http://ultrafeeder/data/aircraft.json): "
+                             "squawks readsb has decoded from any source are treated as known by the Mode A "
+                             "match. Read locally only; optional.",
+                        default=None)
+
     logOptions = parser.add_argument_group('Log Options')
     logOptions.add_argument('--log-timestamps',
                           dest='log_timestamps',
@@ -118,6 +138,9 @@ location pin from the coverage maps.""",
 
     args = parser.parse_args(args=mangledArgs)
 
+    if args.forward_modeac and '--server' not in sys.argv[1:] and not any(a.startswith('--server=') for a in sys.argv[1:]):
+        parser.error('--forward-modeac requires an explicit --server pointing at a Mode A/C-capable mlat-server')
+
     util.suppress_log_timestamps = not args.log_timestamps
 
     if abs(args.lat) < 0.1 and abs(args.lon) < 0.1:
@@ -132,7 +155,8 @@ location pin from the coverage maps.""",
     outputs = options.build_outputs(args)
 
     receiver = ReceiverConnection(host=args.input_connect[0], port=args.input_connect[1],
-                                  mode=options.connection_mode(args))
+                                  mode=options.connection_mode(args),
+                                  forward_all_modeac=args.forward_modeac)
 
     server = JsonServerConnection(host=args.server[0],
                                   port=args.server[1],
@@ -146,14 +170,24 @@ location pin from the coverage maps.""",
                                                   'clock_type': options.clock_type(args),
                                                   'clock_frequency': options.clock_frequency(args),
                                                   'clock_epoch': options.clock_epoch(args),
-                                                  'privacy': args.privacy},
+                                                  'privacy': args.privacy,
+                                                  'modeac_forward': args.forward_modeac},
                                   offer_zlib=True,
                                   offer_udp=args.udp,
                                   return_results=(len(outputs) > 0))
 
     coordinator = Coordinator(receiver=receiver, server=server, outputs=outputs, freq=options.clock_frequency(args),
                               allow_anon=args.allow_anon_results, allow_modeac=args.allow_modeac_results,
-                              stats_interval=float(args.stats_interval))
+                              stats_interval=float(args.stats_interval),
+                              forward_all_modeac=args.forward_modeac,
+                              modeac_exclude=args.modeac_exclude)
+    if args.forward_modeac and args.aircraft_json:
+        from mlat.client.readsbjson import LocalAircraftList
+        coordinator.local_known = LocalAircraftList(args.aircraft_json)
+
+    if args.forward_modeac:
+        util.log("Mode A/C forwarding enabled, excluding squawks: {0}",
+                 ', '.join('{0:04x}'.format(c) for c in sorted(args.modeac_exclude)) or 'none')
 
     server.start()
     coordinator.run_forever()

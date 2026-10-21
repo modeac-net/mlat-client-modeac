@@ -18,4 +18,4 @@
 
 """Just a version constant!"""
 
-CLIENT_VERSION = "0.4.2"
+CLIENT_VERSION = "0.4.2+modeac-1.0.0-beta.1"

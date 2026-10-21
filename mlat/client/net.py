@@ -49,6 +49,10 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
     """
 
     reconnect_interval = 10.0
+    # modeac.net: back off when connections keep failing (server down, refused, unreachable),
+    # so a whole network of clients doesn't hammer the server or relay every 10 s.
+    # 0 = off (the local receiver connection keeps retrying quickly).
+    max_backoff = 0.0
 
     def __init__(self, host, port):
         asyncore.dispatcher.__init__(self)
@@ -60,6 +64,7 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
         self.last_try = 0
 
         self.failures = 0
+        self.fail_streak = 0          # consecutive short-lived connections / failed attempts
         self._suppress_errors = 0
         self.suppress_until = 0
         self.motdShown = 0
@@ -93,7 +98,10 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
         if mono - self.last_try < 5 * 60:
             # connections shorter than 5 minutes count as failures
             self.failures += 1
+            self.fail_streak += 1
             #log(f"failures {self.failures}")
+        else:
+            self.fail_streak = 0
 
         if self.failures == 3:
             self.set_error_suppression()
@@ -141,7 +149,7 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
                 other_addresses = 1
             else:
 
-                interval = self.last_try + self.reconnect_interval - mono + 2 * random.random()
+                interval = self.last_try + self.retry_delay() - mono + 2 * random.random()
 
                 if interval < 4:
                     interval = 2 + 2 * random.random()
@@ -151,6 +159,16 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
                 pass
 
             self.reconnect_at = mono + interval
+
+    def retry_delay(self):
+        """Seconds between connection attempts: the server's requested interval, stretched
+        while attempts keep failing (10, 20, 40 ... s up to max_backoff, with jitter so
+        clients don't all return at once after an outage)."""
+        delay = self.reconnect_interval
+        if self.max_backoff > 0 and self.fail_streak >= 2:
+            backoff = min(self.max_backoff, 10.0 * 2 ** (self.fail_streak - 1))
+            delay = max(delay, backoff * random.uniform(0.75, 1.0))
+        return delay
 
     def refresh_address_list(self):
         self.address

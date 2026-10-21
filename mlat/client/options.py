@@ -92,6 +92,20 @@ def hostport(s):
     return (parts[0], int(parts[1]))
 
 
+def squawk_list(s):
+    """Parse '1200,7000' into a set of hex-octal ints (0x1200, 0x7000),
+    matching the Mode A word readsb puts in Beast type-1 frames."""
+    codes = set()
+    for part in s.split(','):
+        part = part.strip()
+        if not part:
+            continue
+        if len(part) != 4 or any(c not in '01234567' for c in part):
+            raise argparse.ArgumentTypeError('{0!r} is not a 4-digit octal squawk'.format(part))
+        codes.add(int(part, 16))
+    return frozenset(codes)
+
+
 def make_inputs_group(parser):
     inputs = parser.add_argument_group('Mode S receiver input connection')
     inputs.add_argument('--input-type',
