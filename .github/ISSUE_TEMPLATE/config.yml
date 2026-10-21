@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Private question (bans, privacy, anything you'd rather not post)
+    url: mailto:contact@modeac.net
+    about: Email contact@modeac.net

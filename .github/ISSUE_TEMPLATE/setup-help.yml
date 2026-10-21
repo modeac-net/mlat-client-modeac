@@ -1,0 +1,52 @@
+name: Setup help
+description: The client won't connect, isn't sending, or something looks wrong.
+title: "[setup] "
+labels: ["setup help"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for feeding modeac.net! Please check the
+        [troubleshooting table](https://github.com/modeac-net/mlat-client-modeac#if-something-s-wrong) first.
+
+        **Issues are public.** Before pasting logs, **remove your latitude and longitude**
+        (they appear in some messages, e.g. `Receiver location 40.1234,-83.1234 ...`). Replace them
+        with `XX.XXXX,-XX.XXXX`. For anything you'd rather not post publicly, email contact@modeac.net instead.
+  - type: dropdown
+    id: setup
+    attributes:
+      label: What runs your receiver?
+      options:
+        - ultrafeeder (Docker)
+        - adsb.im image
+        - plain readsb + the Docker client
+        - something else (say below)
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      description: Computer and SDR, e.g. "Raspberry Pi 4, RTL-SDR Blog V4"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What's happening?
+      description: What you expected, and what you see instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Client log (location removed!)
+      description: The last 30 lines of `docker logs mlat-modeac`.
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed my latitude/longitude (and anything else I don't want public) from what I pasted.
+          required: true

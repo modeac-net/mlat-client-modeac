@@ -110,7 +110,10 @@ they'll be rare at first. Every receiver that joins fills in more of the map.
 | `Connection to feed.modeac.net:31090 failed` | Usually temporary: the client retries by itself, waiting longer each time |
 | `Handshake complete`, but your planes aren't on the map | Check the step 2 line is in `ULTRAFEEDER_CONFIG`, and look at `docker logs ultrafeeder` for errors mentioning `feed.modeac.net` |
 
-Stuck? Get in touch (see [modeac.net](https://modeac.net)) and include the last 30 lines of `docker logs mlat-modeac`.
+**Stuck?** [Open a setup-help issue](https://github.com/modeac-net/mlat-client-modeac/issues/new?template=setup-help.yml)
+with the last 30 lines of `docker logs mlat-modeac`. Issues are public, so **remove your latitude/longitude
+from the log first**. For anything private (a refused or banned receiver, privacy questions), email
+**contact@modeac.net**.
 
 ### Updating
 
@@ -185,7 +188,7 @@ by Oliver Jowett. Clock synchronisation, the Beast reader and everything else th
 work. modeac.net adds Mode A/C forwarding, the server-controlled pre-filter and the Docker packaging. The
 original README is kept in [README-upstream.md](README-upstream.md).
 
-Please don't report problems with this fork to wiedehopf or mutability; open an issue here instead.
+Please don't report problems with this fork to wiedehopf or mutability; open an issue here, or email contact@modeac.net.
 
 Licensed under the **GNU General Public License v3.0 or later**, like upstream: see [LICENSE](LICENSE)
 and [NOTICE](NOTICE). The Docker image is built from exactly this source by GitHub Actions.
