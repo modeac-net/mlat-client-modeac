@@ -4,7 +4,7 @@
 aircraft whose transponders only answer in the old **Mode A/C** format, with no ADS-B and no Mode S.
 Many military aircraft fly like this. When four or more volunteer receivers hear the same reply,
 the server works out where the aircraft is by **multilateration (MLAT)**, and it appears on the
-public map at [modeac.net](https://modeac.net), next to ordinary MLAT traffic.
+[live map](https://map.modeac.net), next to ordinary MLAT traffic.
 
 This repository is the client that runs next to your receiver. It's a fork of
 [wiedehopf/mlat-client](https://github.com/wiedehopf/mlat-client) (see [Credits](#credits-and-license)).
@@ -96,7 +96,7 @@ Within a minute you should see **`Handshake complete`**. Every 5 minutes there's
 line showing how many replies were received and how many were sent. Press Ctrl+C to stop watching
 (the client keeps running).
 
-Your receiver's traffic shows up on [modeac.net](https://modeac.net) within a minute or two.
+Your receiver's traffic shows up on the [live map](https://map.modeac.net) within a minute or two.
 Mode A/C-only aircraft only appear where four receivers hear the same aircraft, so in the beta
 they'll be rare at first. Every receiver that joins fills in more of the map.
 
