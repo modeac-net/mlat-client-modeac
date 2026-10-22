@@ -9,9 +9,8 @@ the server works out where the aircraft is by **multilateration (MLAT)**, and it
 This repository is the client that runs next to your receiver. It's a fork of
 [wiedehopf/mlat-client](https://github.com/wiedehopf/mlat-client) (see [Credits](#credits-and-license)).
 
-> **Private beta: Ohio only.** During the beta, the server accepts receivers in Ohio only.
-> Receivers elsewhere are politely refused, and the client's log says why. The rest of the
-> US opens once the beta is done.
+> **United States only.** The server accepts receivers in the 50 states. Receivers elsewhere are
+> politely refused, and the client's log says why.
 
 ---
 
@@ -24,7 +23,7 @@ FR24…) keep running exactly as before.**
 
 ### What you need
 
-- A receiver **in Ohio** (during the beta), with its **antenna position and height above sea level**
+- A receiver **in the United States**, with its **antenna position and height above sea level**
   already in your `.env` (the usual `FEEDER_LAT`, `FEEDER_LONG`, `FEEDER_ALT_M`). The more accurate
   these are, the better your receiver's timing is: use the antenna's position, not your street address.
 - An SDR with a **TCXO**, which is any recent "ADS-B" dongle: RTL-SDR Blog V3/V4, FlightAware Pro Stick
@@ -97,8 +96,8 @@ line showing how many replies were received and how many were sent. Press Ctrl+C
 (the client keeps running).
 
 Your receiver's traffic shows up on the [live map](https://map.modeac.net) within a minute or two.
-Mode A/C-only aircraft only appear where four receivers hear the same aircraft, so in the beta
-they'll be rare at first. Every receiver that joins fills in more of the map.
+Mode A/C-only aircraft only appear where four receivers hear the same aircraft, so every receiver
+that joins fills in more of the map.
 
 ### If something's wrong
 
@@ -106,7 +105,7 @@ they'll be rare at first. Every receiver that joins fills in more of the map.
 |---|---|
 | `LAT and LON must be set` or `ALT must be set` | The `.env` doesn't have `FEEDER_LAT` / `FEEDER_LONG` / `FEEDER_ALT_M`. Put your values straight into the block instead, e.g. `- LAT=40.0123`, `- LON=-83.0456`, `- ALT=250m` |
 | `Mode A/C:    0.0 msg/s received` (stays at 0) | readsb isn't decoding Mode A/C: check step 1, then `docker compose up -d` again |
-| `Server explicitly rejected our connection` … `outside the area this server covers` | The location in your `.env` isn't in Ohio. Often it's a missing minus sign on the longitude (Ohio's is about **-80 to -85**). Fix it, then `docker compose up -d --force-recreate mlat-modeac`. Otherwise the client waits hours before trying again |
+| `Server explicitly rejected our connection` … `outside the area this server covers` | The location in your `.env` isn't in the US. Often it's a missing minus sign on the longitude (US longitudes are negative, e.g. **-83.0**). Fix it, then `docker compose up -d --force-recreate mlat-modeac`. Otherwise the client waits hours before trying again |
 | `Connection to feed.modeac.net:31090 failed` | Usually temporary: the client retries by itself, waiting longer each time |
 | `Handshake complete`, but your planes aren't on the map | Check the step 2 line is in `ULTRAFEEDER_CONFIG`, and look at `docker logs ultrafeeder` for errors mentioning `feed.modeac.net` |
 
@@ -138,7 +137,7 @@ run `docker compose up -d --remove-orphans`. That's all; nothing else on your sy
 - **On the public map:** aircraft only. **Receiver names and exact locations are never published.**
 - **Why the location is checked:** MLAT only works if every receiver's position is right, so the server
   compares where you say you are with what your receiver actually hears. Receivers that don't match are
-  turned away automatically. That's also how the beta stays inside Ohio.
+  turned away automatically. That's also how the network stays inside the US.
 - **Filtering:** most Mode A/C replies come from ordinary airliners the network already knows. The client
   drops those before sending, to save your upload and the server's work. The server decides the
   settings; there's nothing for you to configure.
